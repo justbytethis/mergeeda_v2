@@ -85,9 +85,9 @@ Each chunk embeds `<material:FILENAME>` tags where figures or tables were found.
 
 ---
 
-### 2. Generate Eval Question Set
+### 2. Generate Question Set
 
-Uses `EvalQSetGenerator` (GPT) to produce questions for every chunk in parallel. Questions are tagged by cognitive level (L1–L6) and format (F1–F5) and may reference a single material file.
+Uses `EvalQSetGenerator` (GPT) to produce questions for every chunk in parallel. Questions are tagged by cognitive level (L1–L6) and may reference a single material file. The output is consumed by step 3 as the source of questions for SFT data generation.
 
 ```bash
 python scripts/augmentation/generate_question_set.py \
@@ -103,7 +103,7 @@ Key options:
 
 Output: `question_set/<spec>/<name>.json`
 
-Each item has fields: `question`, `type` (L?), `format` (F?), `source_chunk`, and optionally `material`.
+Each item has fields: `question`, `type` (L?), `source_chunk`, and optionally `material`.
 
 ---
 
@@ -137,7 +137,6 @@ Each SFT item follows the Qwen-VL finetune schema:
   "image": ["<dataset_name>/materials/<filename>"],  // only for image-type questions
   "source_chunk": "42.md",
   "type": "L3",
-  "format": "F1",
   "material": "42_7.jpg"
 }
 ```
@@ -167,13 +166,15 @@ Output: `outputs/<slug>-lora-<rank>-amba-<timestamp>/`
 
 ### 5. Evaluate
 
-`AnswerGenerator` queries the model for each question in all `*_test.json` files found under `questions_dir`, then `LLMJudgeEvaluator` scores each answer (0–1, GPT judge). Both steps run in a single script.
+`AnswerGenerator` queries the model for each item in `final_dataset_test.json` (the SFT test split produced in step 3), then `LLMJudgeEvaluator` scores each answer (0–1, GPT judge). Both steps run in a single script.
+
+The eval input is the SFT test split, not a question set. Each item already carries the GPT-generated gold answer (`conversations[1]["value"]`), which the judge can optionally use for comparison-based scoring via `use_gold_answer=true`.
 
 **Base model:**
 
 ```bash
 python scripts/evaluation/eval_model.py \
-  questions_dir="data/datasets/amba_document/question_set/<spec>" \
+  sft_test_file="data/datasets/amba_document/sft_data/final_dataset_test.json" \
   materials_dir="data/datasets/amba_document/processed/<spec>/materials" \
   chunks_dir="data/datasets/amba_document/processed/<spec>/chunks" \
   output_dir="data/evaluation/base_model/<spec>"
@@ -185,20 +186,20 @@ python scripts/evaluation/eval_model.py \
 python scripts/evaluation/eval_model.py \
   model=qwen_vl_finetuned_model \
   model.params.finetune_path="outputs/<slug>-lora-<rank>-amba-<timestamp>" \
-  questions_dir="data/datasets/amba_document/question_set/<spec>" \
+  sft_test_file="data/datasets/amba_document/sft_data/final_dataset_test.json" \
   materials_dir="data/datasets/amba_document/processed/<spec>/materials" \
   chunks_dir="data/datasets/amba_document/processed/<spec>/chunks" \
   output_dir="data/evaluation/finetuned_model/<spec>"
 ```
 
 Key options:
-- `include_specification=true` — prepend the full source chunk text (with resolved materials) to each question; defaults to `false`
+- `use_gold_answer=true` — pass the GPT gold answer to the judge for comparison-based scoring; defaults to `false` (judge scores against context only)
 - `model.params.model_name` — change model size, e.g. `Qwen/Qwen3-VL-2B-Instruct` (2B/4B/8B/32B)
 - `judge.name` — GPT judge model (default: `gpt-5.1`)
 - `judge.max_workers` — parallel judge threads (default: `20`)
 
 Output:
-- `<output_dir>/preds.json` — model answers with `id`, `question`, `answer`, `source_chunk`, etc.
+- `<output_dir>/preds.json` — model answers with `id`, `type`, `question`, `gold_answer`, `answer`, `source_chunk`, etc.
 - `<output_dir>/scores.json` — judge scores with `reason` and `score` (0.0–1.0) added to each item
 
 ---

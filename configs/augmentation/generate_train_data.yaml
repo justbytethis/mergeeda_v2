@@ -21,6 +21,9 @@ train_files:
 # Fraction of merged data used for training; remainder goes to test (must be in (0, 1)).
 train_ratio: 0.7
 
+# Random seed for reproducible train/test split (null to skip seeding)
+seed: 42
+
 # OpenAI model to use for answer generation
 model:
   name: "gpt-5.1"

@@ -1,4 +1,4 @@
-# Configuration for base model evaluation
+# Configuration for model evaluation on SFT test split
 
 defaults:
   - model: qwen_vl_model
@@ -8,10 +8,11 @@ hydra:
   run:
     dir: data/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
-# Input: directory containing evaluation Question JSON files
-questions_dir: "data/datasets/amba_document/question_set/IHI0022L_amba_axi_protocol_spec"
+# Input: SFT test split JSON file produced by generate_train_data.py
+sft_test_file: "data/datasets/amba_document/sft_data/final_dataset_test.json"
 
 # Input: directory containing extracted material files (images, tables)
+# Must contain all material files referenced in the SFT items (flat directory).
 materials_dir: "data/datasets/amba_document/processed/IHI0022L_amba_axi_protocol_spec/materials"
 
 # Input: directory containing source chunk text files (for LLM judge context)
@@ -20,9 +21,10 @@ chunks_dir: "data/datasets/amba_document/processed/IHI0022L_amba_axi_protocol_sp
 # Output directory for preds.json and scores.json
 output_dir: "data/evaluation/base_model_rag/IHI0022L_amba_axi_protocol_spec"
 
-# If true, prepend "Specification: <source chunk content>" to each question
-# using the markdown file referenced by item["source_chunk"] in chunks_dir.
-include_specification: false
+# If true, the LLM judge receives the GPT-generated gold answer from the SFT
+# item alongside the model's answer for comparison-based scoring.
+# If false, the judge scores based on context and question alone.
+use_gold_answer: false
 
 # LLM judge model configuration (OpenAI)
 judge:

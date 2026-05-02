@@ -105,6 +105,9 @@ def main(cfg: DictConfig) -> None:
             f"train_ratio must be in (0, 1), got {train_ratio}"
         )
 
+    seed: int | None = cfg.get("seed", None)
+    if seed is not None:
+        random.seed(seed)
     random.shuffle(merged)
     split_idx = int(len(merged) * train_ratio)
     train_data = merged[:split_idx]

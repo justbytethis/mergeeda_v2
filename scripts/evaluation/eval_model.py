@@ -1,4 +1,4 @@
-"""Script to evaluate a model on an AMBA evaluation Question set."""
+"""Script to evaluate a model on an SFT test split file."""
 
 import logging
 import os
@@ -19,26 +19,24 @@ logger = logging.getLogger(__name__)
     config_name="eval_model",
 )
 def main(cfg: DictConfig) -> None:
-    """Run answer generation and LLM-judge evaluation on an AMBA Question set."""
+    """Run answer generation and LLM-judge evaluation on an SFT test split file."""
     logger.info("Starting model evaluation")
-    logger.info(f"Question directory: {cfg.questions_dir}")
-    logger.info(f"Materials directory: {cfg.materials_dir}")
-    logger.info(f"Chunks directory: {cfg.chunks_dir}")
-    logger.info(f"Output directory: {cfg.output_dir}")
-    logger.info(f"Model: {cfg.model.name}")
-    logger.info(f"Judge model: {cfg.judge.name}")
-    logger.info(f"Include specification in prompt: {cfg.include_specification}")
+    logger.info("SFT test file: %s", cfg.sft_test_file)
+    logger.info("Materials directory: %s", cfg.materials_dir)
+    logger.info("Chunks directory: %s", cfg.chunks_dir)
+    logger.info("Output directory: %s", cfg.output_dir)
+    logger.info("Model: %s", cfg.model.name)
+    logger.info("Judge model: %s", cfg.judge.name)
+    logger.info("Use gold answer: %s", cfg.use_gold_answer)
 
     original_cwd = Path(get_original_cwd())
-    question_path = original_cwd / cfg.questions_dir
+    sft_test_file = original_cwd / cfg.sft_test_file
     materials_path = original_cwd / cfg.materials_dir
     chunks_path = original_cwd / cfg.chunks_dir
     output_path = original_cwd / cfg.output_dir
 
-    if not question_path.exists():
-        raise FileNotFoundError(
-            f"Question directory not found: {question_path}"
-        )
+    if not sft_test_file.exists():
+        raise FileNotFoundError(f"SFT test file not found: {sft_test_file}")
     if not materials_path.exists():
         raise FileNotFoundError(
             f"Materials directory not found: {materials_path}"
@@ -50,11 +48,9 @@ def main(cfg: DictConfig) -> None:
     logger.info("Step 1/2: Generating model answers")
     generator = AnswerGenerator(model_cfg=cfg.model)
     generator.generate(
-        questions_dir=question_path,
+        sft_test_file=sft_test_file,
         materials_dir=materials_path,
         output_path=output_path,
-        chunks_dir=chunks_path,
-        include_specification=cfg.include_specification,
     )
     logger.info("Answer generation completed")
 
@@ -65,6 +61,7 @@ def main(cfg: DictConfig) -> None:
         model=cfg.judge.name,
         api_key=api_key,
         max_workers=cfg.judge.max_workers,
+        use_gold_answer=cfg.use_gold_answer,
     )
     preds_path = output_path / "preds.json"
     evaluator.evaluate(
@@ -76,9 +73,9 @@ def main(cfg: DictConfig) -> None:
     logger.info("LLM judge evaluation completed")
 
     logger.info("Model evaluation completed successfully")
-    logger.info(f"Results saved to: {output_path}")
-    logger.info(f"  - Predictions: {output_path / 'preds.json'}")
-    logger.info(f"  - Scores:      {output_path / 'scores.json'}")
+    logger.info("Results saved to: %s", output_path)
+    logger.info("  - Predictions: %s", output_path / "preds.json")
+    logger.info("  - Scores:      %s", output_path / "scores.json")
 
 
 if __name__ == "__main__":

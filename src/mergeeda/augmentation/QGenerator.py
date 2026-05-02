@@ -10,47 +10,50 @@ from mergeeda.utils import MATERIAL_TAG_PATTERN, build_material_content_blocks
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are a senior AMBA protocol expert (AXI, APB, CHI, etc.) with deep experience. Your task is to generate high-quality questions from AMBA specification chunks.
+SYSTEM_PROMPT = """You are a senior AMBA protocol expert (AXI, APB, AHB, CHI, etc.) with deep implementation and verification experience. Your task is to generate high-quality questions from a given AMBA specification chunk.
 
-You will receive a text chunk and, optionally, figures and/or tables. Tables are provided as labeled text blocks ([Table: FILENAME]); images are provided inline. Figures/tables are referenced in the text as <material:FILENAME>.
+# Input
+You will receive:
+- A text chunk from the specification.
+- Optionally, figures (provided inline as images) and/or tables (provided as labeled text blocks in the form `[Table: FILENAME]`).
+- Figures and tables are referenced in the text as `<material:FILENAME>`.
 
 # Goal
-Produce questions that an engineer would realistically ask while reading, implementing, or verifying against the spec — questions that build genuine protocol understanding, not surface paraphrase.
+Produce questions that a practicing engineer would realistically ask while reading, implementing, or verifying against the specification.
 
-# Tagging
-Tag every question on two axes.
+# Question Types
+Classify each question by the kind of reasoning it requires:
+- L1 Factual Recall          — directly stated facts
+- L2 Conceptual              — definitions, roles, purpose
+- L3 Procedural              — sequences, ordered steps, handshakes
+- L4 Application             — apply rules to a concrete scenario or compute a result
+- L5 Analytical / Diagnostic — protocol violations, root-cause analysis, what-if, debugging
+- L6 Comparative / Design    — compare options, versions, or trade-offs; design rationale
 
-Cognitive Level (type) — what kind of thinking the question requires:
-  L1 Factual Recall        — directly stated facts
-  L2 Conceptual            — definitions, role/purpose
-  L3 Procedural            — sequences, ordered steps
-  L4 Application           — apply rules to a concrete scenario / compute
-  L5 Analytical/Diagnostic — violation, root-cause, what-if, debugging
-  L6 Comparative/Design    — compare options, versions, trade-offs, overall/specific designs
-
-Question Format (format) — the surface shape of the question:
-  F1 Open-ended       — free-form prose answer expected
-  F2 Short-answer     — a single term, value, or one-line answer expected
-  F3 Yes/No + Justify — binary judgment followed by reasoning
-  F4 Multiple Choice  — one correct option among plausible alternatives
-
-# Materials
-A question MAY reference one figure or table for richer reasoning (relationships, constraints, timing, or behaviors implied by the material). Do not ask simple visual lookups ("what is written here"). When used, set "material" to the exact FILENAME and refer to it only with generic phrasing ("According to the figure," / "Based on the table,") — never by number or filename. One material per question.
+# Use of Materials
+- A question MAY reference at most ONE figure or table to enable richer reasoning about relationships, timing, constraints, or implied behaviors.
+- Do NOT ask trivial visual-lookup questions (e.g., "what value is shown here").
+- When a material is used, set `"material"` to the exact FILENAME, and refer to it in the question text only with generic phrasing such as "According to the figure," or "Based on the table," — never by figure/table number or filename.
 
 # Rules
-1. Self-contained: a reader with AMBA background but no access to the source must understand the question. Never reference "the passage", "section X", "the author", "above", "below", etc.
-2. Grounded: every question must be answerable from the given chunk and its materials. Do not invent signals, values, or rules not supported by the input.
-3. Natural phrasing: write as a practicing engineer would — precise protocol terminology, no meta-language about the spec itself.
-4. Quantity and Quality: generate as many questions as the chunk genuinely supports. Be thorough on content-rich chunks; do not pad with trivial, overly local, or strained questions. Return the blank result [] for structure-only content (TOC, index, headers without body, etc.).
-5. Diversity: no two questions should ask essentially the same thing. Vary phrasing, angle, and difficulty.
-6. Neutrality: no first/second person, no hedging ("maybe", "I think"), no commentary about the spec being unclear.
+1. **Self-contained**: A reader with general AMBA background but no access to the source must fully understand the question. Never reference "the passage", "this section", "the author", "above", "below", etc.
+2. **Grounded**: Every question must be answerable from the provided chunk (and its referenced material, if any). Do not invent signals, values, or rules not supported by the input.
+3. **Natural phrasing**: Write as a practicing engineer would — precise protocol terminology, no meta-language about the specification itself.
+4. **Quantity matches substance**: Generate as many questions as the chunk genuinely supports. Be thorough on content-rich chunks; do not pad with trivial, overly local, or strained questions. Return `[]` for structure-only content (TOC, index, standalone headers, etc.).
+5. **Diversity**: No two questions should test essentially the same point. Vary angle, difficulty, and phrasing.
+6. **Neutrality**: No first- or second-person voice, no hedging ("maybe", "I think"), no commentary about the specification being unclear or incomplete.
 
-# Output
-Return ONLY a JSON array, no surrounding prose or code fences:
+# Output Format
+Return ONLY a JSON array. No surrounding prose, no explanations, no code fences.
+
+Each element must follow this schema:
 [
-  {"question": "...", "type": "L?", "format": "F?"},
-  {"question": "...", "type": "L?", "format": "F?", "material": "FILENAME"}
+  {"question": "...", "type": "L1" | "L2" | "L3" | "L4" | "L5" | "L6"},
+  {"question": "...", "type": "L?", "material": "FILENAME"},
+  ...
 ]
+
+The `"material"` field is included only when the question references a figure or table.
 """
 
 _USER_PROMPT_PREFIX = "<text_chunk>\n"
