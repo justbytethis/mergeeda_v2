@@ -1,9 +1,8 @@
 #!/bin/bash
-# LoRA SFT launcher for the AMBA spec QA dataset.
+# LoRA SFT launcher for the AMBA spec Question dataset.
 #
 # Prereq:
-#   1) `python preprocess_data/generate_train_data.py ...` to produce per-file answers.
-#   2) `python preprocess_data/merge_train_data.py` to build the merged annotation JSON.
+#   1) `python scripts/augmentation/generate_train_data.py` to produce per-file answers and the merged annotation JSON.
 #
 # Usage:
 #   scripts/train/train.sh <model_name_or_path> [lora_rank]
@@ -25,7 +24,7 @@ if [[ ${#} -lt 1 ]]; then
 fi
 
 MODEL_NAME_OR_PATH="$1"
-LORA_RANK="${2:-64}"
+LORA_RANK="${2:-128}"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d-%H%M%S)}"
 
 if ! [[ "$LORA_RANK" =~ ^[0-9]+$ ]] || [[ "$LORA_RANK" -lt 1 ]]; then

@@ -21,7 +21,7 @@ class OCRParser:
 
     def __init__(
         self,
-        model_name: str = "deepseek-ai/DeepSeek-OCR-2",
+        model_name: str = "deepseek-ai/DeepSeek-OCR",
         dpi: int = 300,
     ) -> None:
         """Initialize OCR parser with vLLM model."""

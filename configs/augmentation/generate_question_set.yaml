@@ -1,4 +1,4 @@
-# Configuration for AMBA evaluation QA set generation
+# Configuration for AMBA Question set generation
 
 # Hydra output directory configuration
 hydra:
@@ -11,14 +11,16 @@ chunks_dir: "data/datasets/amba_document/processed/IHI0050H_amba_chi_architectur
 # Input: directory containing extracted material files (images, tables)
 materials_dir: "data/datasets/amba_document/processed/IHI0050H_amba_chi_architecture_spec/materials"
 
-# Output directory for generated QA JSON files
-output_dir: "data/datasets/amba_document/eval_qa/IHI0050H_amba_chi_architecture_spec"
+# Output directory for generated Q set JSON files
+output_dir: "data/datasets/amba_document/question_set/IHI0050H_amba_chi_architecture_spec"
 
-# Output file base name; files will be saved as {output_name}_{type}.json
-output_name: "amba_chi_architecture_spec"
+# Output file base name; files will be saved as {output_name}.json
+output_name: "questions"
 
 # OpenAI model to use for question generation
 model:
   name: "gpt-5.1"
   # API key is read from OPENAI_API_KEY env variable if not set here
   api_key: null
+  # Number of parallel worker threads for concurrent API calls
+  max_workers: 20

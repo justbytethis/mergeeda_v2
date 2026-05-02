@@ -8,17 +8,7 @@ from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 
 class QwenVLModel:
-    """Qwen Vision-Language Model for multimodal question answering.
-
-    Attributes:
-        modality (str): The modality type, always 'multimodal'.
-        model (Qwen3VLForConditionalGeneration): The loaded Qwen3-VL model.
-        processor (AutoProcessor): The processor for input formatting.
-        device (str): The device to run the model on (e.g., 'cuda:0', 'cpu').
-        max_new_tokens (int): Maximum number of tokens to generate.
-        min_pixels (int): Minimum number of pixels for image processing.
-        max_pixels (int): Maximum number of pixels for image processing.
-    """
+    """Qwen Vision-Language Model for multimodal question answering."""
 
     def __init__(
         self,
@@ -30,20 +20,7 @@ class QwenVLModel:
         min_pixels: int = 256 * 28 * 28,
         max_pixels: int = 1280 * 28 * 28,
     ):
-        """Initialize the Qwen3-VL model.
-
-        Args:
-            model_name: HuggingFace model identifier (e.g., 'Qwen/Qwen3-VL-8B-Instruct').
-            device: Device to run the model on (default: 'cuda').
-            torch_dtype: Data type for model weights (default: 'bfloat16').
-            attn_implementation: Attention implementation (default: 'sdpa').
-            max_new_tokens: Maximum number of tokens to generate (default: 512).
-            min_pixels: Minimum number of pixels for image processing (default: 256*28*28).
-            max_pixels: Maximum number of pixels for image processing (default: 1280*28*28).
-
-        Raises:
-            ValueError: If model_name is not provided.
-        """
+        """Initialize the Qwen3-VL model from a HuggingFace model identifier."""
         if not model_name:
             raise ValueError("model_name must be provided")
 
@@ -72,15 +49,7 @@ class QwenVLModel:
     def __call__(
         self, question: str, imgs: Optional[list[Image.Image]] = None
     ) -> str:
-        """Generate an answer to a question with optional images.
-
-        Args:
-            question: The text question to answer.
-            imgs: Optional list of PIL Images to use as visual context.
-
-        Returns:
-            The generated text answer as a string.
-        """
+        """Generate an answer to a question with optional images."""
         with torch.no_grad():
             if imgs is None:
                 imgs = []

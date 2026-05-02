@@ -1,4 +1,4 @@
-"""Script to generate evaluation QA sets from AMBA document chunks."""
+"""Script to generate Question sets from AMBA document chunks."""
 
 import logging
 import os
@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
 @hydra.main(
     version_base=None,
     config_path="../../configs/augmentation",
-    config_name="amba_eval_qa",
+    config_name="generate_question_set",
 )
 def main(cfg: DictConfig) -> None:
-    """Generate evaluation QA sets from AMBA document text chunks."""
-    logger.info("Starting AMBA evaluation QA set generation")
+    """Generate Question sets from AMBA document text chunks."""
+    logger.info("Starting AMBA Question set generation")
     logger.info(f"Chunks directory: {cfg.chunks_dir}")
     logger.info(f"Materials directory: {cfg.materials_dir}")
     logger.info(f"Output directory: {cfg.output_dir}")
@@ -35,7 +35,9 @@ def main(cfg: DictConfig) -> None:
     if not chunks_path.exists():
         raise FileNotFoundError(f"Chunks directory not found: {chunks_path}")
     if not materials_path.exists():
-        raise FileNotFoundError(f"Materials directory not found: {materials_path}")
+        raise FileNotFoundError(
+            f"Materials directory not found: {materials_path}"
+        )
 
     # Resolve API key: config takes precedence, then environment variable
     api_key: str | None = cfg.model.api_key or os.environ.get("OPENAI_API_KEY")
@@ -43,6 +45,7 @@ def main(cfg: DictConfig) -> None:
     generator = EvalQSetGenerator(
         model=cfg.model.name,
         api_key=api_key,
+        max_workers=cfg.model.max_workers,
     )
 
     generator.generate(
@@ -52,7 +55,7 @@ def main(cfg: DictConfig) -> None:
         output_name=cfg.output_name,
     )
 
-    logger.info("AMBA evaluation QA set generation completed successfully")
+    logger.info("AMBA Question set generation completed successfully")
     logger.info(f"Results saved to: {output_path}")
 
 

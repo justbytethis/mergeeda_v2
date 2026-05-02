@@ -3,13 +3,13 @@
 import base64
 import json
 import logging
-import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from openai import OpenAI
 from tqdm import tqdm
 
-MATERIAL_TAG_PATTERN = re.compile(r"<material:([\w\-._]+)>")
+from mergeeda.utils import IMAGE_SUFFIXES, MATERIAL_TAG_PATTERN, MIME_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +49,6 @@ USER_PROMPT = """\
 
 """
 
-_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-_MIME_MAP = {
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-}
-
 
 class LLMJudgeEvaluator:
     """Score model predictions in preds.json using an OpenAI LLM as judge.
@@ -74,11 +65,15 @@ class LLMJudgeEvaluator:
         self,
         model: str = "gpt-5.1",
         api_key: str | None = None,
+        max_workers: int = 20,
     ) -> None:
         """Initialize LLMJudgeEvaluator with an OpenAI client."""
         self.model = model
         self._client = OpenAI(api_key=api_key)
-        logger.info(f"LLMJudgeEvaluator initialized with model={model}")
+        self._max_workers = max_workers
+        logger.info(
+            f"LLMJudgeEvaluator initialized with model={model}, max_workers={max_workers}"
+        )
 
     def evaluate(
         self,
@@ -105,23 +100,24 @@ class LLMJudgeEvaluator:
             logger.warning(f"No predictions found in: {preds_path}")
             return
 
-        logger.info(f"Evaluating {len(predictions)} predictions")
+        logger.info(
+            f"Evaluating {len(predictions)} predictions with max_workers={self._max_workers}"
+        )
 
-        results: list[dict] = []
-        for item in tqdm(predictions, desc="Judging answers"):
-            context = self._load_context(item.get("source_chunk", ""), chunks_dir)
-            question = item.get("question", "")
-            answer = item.get("answer", "")
-            material_filename: str | None = item.get("material")
-
-            reason, score = self._judge(
-                context, question, answer, material_filename, materials_dir
+        n = len(predictions)
+        with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+            results = list(
+                tqdm(
+                    executor.map(
+                        self._process_item,
+                        predictions,
+                        [chunks_dir] * n,
+                        [materials_dir] * n,
+                    ),
+                    total=n,
+                    desc="Judging answers",
+                )
             )
-
-            result = {k: v for k, v in item.items()}
-            result["reason"] = reason
-            result["score"] = score
-            results.append(result)
 
         output_file = output_path / "scores.json"
         output_file.write_text(
@@ -129,6 +125,27 @@ class LLMJudgeEvaluator:
             encoding="utf-8",
         )
         logger.info(f"Saved {len(results)} scored predictions -> {output_file}")
+
+    def _process_item(
+        self,
+        item: dict,
+        chunks_dir: Path,
+        materials_dir: Path,
+    ) -> dict:
+        """Judge a single prediction and return the scored result."""
+        context = self._load_context(item.get("source_chunk", ""), chunks_dir)
+        question = item.get("question", "")
+        answer = item.get("answer", "")
+        material_filename: str | None = item.get("material")
+
+        reason, score = self._judge(
+            context, question, answer, material_filename, materials_dir
+        )
+
+        result = {k: v for k, v in item.items()}
+        result["reason"] = reason
+        result["score"] = score
+        return result
 
     def _load_preds(self, preds_path: Path) -> list[dict]:
         """Load and return predictions from preds.json."""
@@ -209,9 +226,9 @@ class LLMJudgeEvaluator:
 
             suffix = material_path.suffix.lower()
 
-            if suffix in _IMAGE_SUFFIXES:
+            if suffix in IMAGE_SUFFIXES:
                 try:
-                    mime_type = _MIME_MAP.get(suffix, "image/jpeg")
+                    mime_type = MIME_MAP.get(suffix, "image/jpeg")
                     image_data = base64.standard_b64encode(
                         material_path.read_bytes()
                     ).decode("utf-8")

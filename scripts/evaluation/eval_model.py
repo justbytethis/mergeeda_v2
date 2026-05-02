@@ -1,4 +1,4 @@
-"""Script to evaluate a base model on an AMBA evaluation QA set."""
+"""Script to evaluate a model on an AMBA evaluation Question set."""
 
 import logging
 import os
@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 @hydra.main(
     version_base=None,
     config_path="../../configs/evaluation",
-    config_name="eval_base_model",
+    config_name="eval_model",
 )
 def main(cfg: DictConfig) -> None:
-    """Run answer generation and LLM-judge evaluation on an AMBA QA set."""
-    logger.info("Starting base model evaluation")
-    logger.info(f"QA directory: {cfg.qa_dir}")
+    """Run answer generation and LLM-judge evaluation on an AMBA Question set."""
+    logger.info("Starting model evaluation")
+    logger.info(f"Question directory: {cfg.questions_dir}")
     logger.info(f"Materials directory: {cfg.materials_dir}")
     logger.info(f"Chunks directory: {cfg.chunks_dir}")
     logger.info(f"Output directory: {cfg.output_dir}")
@@ -30,15 +30,19 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"Include specification in prompt: {cfg.include_specification}")
 
     original_cwd = Path(get_original_cwd())
-    qa_path = original_cwd / cfg.qa_dir
+    question_path = original_cwd / cfg.questions_dir
     materials_path = original_cwd / cfg.materials_dir
     chunks_path = original_cwd / cfg.chunks_dir
     output_path = original_cwd / cfg.output_dir
 
-    if not qa_path.exists():
-        raise FileNotFoundError(f"QA directory not found: {qa_path}")
+    if not question_path.exists():
+        raise FileNotFoundError(
+            f"Question directory not found: {question_path}"
+        )
     if not materials_path.exists():
-        raise FileNotFoundError(f"Materials directory not found: {materials_path}")
+        raise FileNotFoundError(
+            f"Materials directory not found: {materials_path}"
+        )
     if not chunks_path.exists():
         raise FileNotFoundError(f"Chunks directory not found: {chunks_path}")
 
@@ -46,7 +50,7 @@ def main(cfg: DictConfig) -> None:
     logger.info("Step 1/2: Generating model answers")
     generator = AnswerGenerator(model_cfg=cfg.model)
     generator.generate(
-        qa_dir=qa_path,
+        questions_dir=question_path,
         materials_dir=materials_path,
         output_path=output_path,
         chunks_dir=chunks_path,
@@ -60,6 +64,7 @@ def main(cfg: DictConfig) -> None:
     evaluator = LLMJudgeEvaluator(
         model=cfg.judge.name,
         api_key=api_key,
+        max_workers=cfg.judge.max_workers,
     )
     preds_path = output_path / "preds.json"
     evaluator.evaluate(
@@ -70,7 +75,7 @@ def main(cfg: DictConfig) -> None:
     )
     logger.info("LLM judge evaluation completed")
 
-    logger.info("Base model evaluation completed successfully")
+    logger.info("Model evaluation completed successfully")
     logger.info(f"Results saved to: {output_path}")
     logger.info(f"  - Predictions: {output_path / 'preds.json'}")
     logger.info(f"  - Scores:      {output_path / 'scores.json'}")

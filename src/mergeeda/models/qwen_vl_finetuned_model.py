@@ -22,21 +22,7 @@ class QwenVLFinetunedModel:
         min_pixels: int = 256 * 28 * 28,
         max_pixels: int = 1280 * 28 * 28,
     ):
-        """Initialize the Qwen3-VL finetuned model with LoRA adapter.
-
-        Args:
-            model_name: HuggingFace model identifier (e.g., 'Qwen/Qwen3-VL-2B-Instruct').
-            finetune_path: Path to the LoRA finetune checkpoint directory.
-            device: Device to run the model on (default: 'cuda').
-            torch_dtype: Data type for model weights (default: 'bfloat16').
-            attn_implementation: Attention implementation (default: 'sdpa').
-            max_new_tokens: Maximum number of tokens to generate (default: 512).
-            min_pixels: Minimum number of pixels for image processing (default: 256*28*28).
-            max_pixels: Maximum number of pixels for image processing (default: 1280*28*28).
-
-        Raises:
-            ValueError: If model_name or finetune_path is not provided.
-        """
+        """Initialize the Qwen3-VL base model and load a LoRA adapter from finetune_path."""
         if not model_name:
             raise ValueError("model_name must be provided")
         if not finetune_path:

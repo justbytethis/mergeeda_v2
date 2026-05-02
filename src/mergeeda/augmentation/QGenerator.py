@@ -1,72 +1,66 @@
-"""QA generation module using OpenAI GPT for text chunk question generation."""
+"""Question generation module using OpenAI GPT for text chunk question generation."""
 
-import base64
 import json
 import logging
-import re
 from pathlib import Path
 
 from openai import OpenAI
 
+from mergeeda.utils import MATERIAL_TAG_PATTERN, build_material_content_blocks
+
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You generate questions from a text chunk in three categories:
-- concept: Factual question about a single concept or term.
-- material: Questions that require interpreting a provided figure or table in context; avoid simple visual lookup (e.g., 'what is written here') and instead design questions that demand reasoning, such as inferring relationships, constraints, or behaviors implied by the figure/table with respect to the given text chunk. The referenced image will be provided at inference time.
-- reasoning: Multi-step analytical question that synthesizes multiple ideas.
+SYSTEM_PROMPT = """You are a senior AMBA protocol expert (AXI, APB, CHI, etc.) with deep experience. Your task is to generate high-quality questions from AMBA specification chunks.
 
-Rules:
-1. All questions must be SELF-CONTAINED — fully understandable without the source text. Never reference "the passage", "section X", "the author", etc. The only exception: material questions may reference the figure/table with generic phrasing such as "According to the figure," or "Based on the table," — never use specific figure/table numbers or filenames in the question text.
-2. Figures/tables appear as <material:FILENAME> tags in the text. For material questions, put the exact FILENAME in the "material" field. Each material question must reference exactly ONE figure/table; do not combine multiple figures/tables into a single question.
-3. If no <material:...> tag exists, skip material questions entirely.
-4. Dynamically decide how many questions to generate:
-   - If the text is a table of contents, index, or similarly structure-only content with no substantive information, return an empty array [].
-   - For typical text chunks, generate at least 1 question per applicable category.
-   - For content-rich text (dense concepts, multiple figures/tables, or complex arguments), generate MULTIPLE questions per category as needed to adequately cover the material. For example, if the text contains 3 figures, generate up to 3 separate material questions, one per figure.
+You will receive a text chunk and, optionally, figures and/or tables. Tables are provided as labeled text blocks ([Table: FILENAME]); images are provided inline. Figures/tables are referenced in the text as <material:FILENAME>.
 
-If materials are present, they are provided after the text chunk — tables as labeled text blocks ([Table: FILENAME]) and images as inline images — both in the order they appear in the text.
+# Goal
+Produce questions that an engineer would realistically ask while reading, implementing, or verifying against the spec — questions that build genuine protocol understanding, not surface paraphrase.
 
-Output ONLY a JSON array, no other text:
+# Tagging
+Tag every question on two axes.
+
+Cognitive Level (type) — what kind of thinking the question requires:
+  L1 Factual Recall        — directly stated facts
+  L2 Conceptual            — definitions, role/purpose
+  L3 Procedural            — sequences, ordered steps
+  L4 Application           — apply rules to a concrete scenario / compute
+  L5 Analytical/Diagnostic — violation, root-cause, what-if, debugging
+  L6 Comparative/Design    — compare options, versions, trade-offs, overall/specific designs
+
+Question Format (format) — the surface shape of the question:
+  F1 Open-ended       — free-form prose answer expected
+  F2 Short-answer     — a single term, value, or one-line answer expected
+  F3 Yes/No + Justify — binary judgment followed by reasoning
+  F4 Multiple Choice  — one correct option among plausible alternatives
+
+# Materials
+A question MAY reference one figure or table for richer reasoning (relationships, constraints, timing, or behaviors implied by the material). Do not ask simple visual lookups ("what is written here"). When used, set "material" to the exact FILENAME and refer to it only with generic phrasing ("According to the figure," / "Based on the table,") — never by number or filename. One material per question.
+
+# Rules
+1. Self-contained: a reader with AMBA background but no access to the source must understand the question. Never reference "the passage", "section X", "the author", "above", "below", etc.
+2. Grounded: every question must be answerable from the given chunk and its materials. Do not invent signals, values, or rules not supported by the input.
+3. Natural phrasing: write as a practicing engineer would — precise protocol terminology, no meta-language about the spec itself.
+4. Quantity and Quality: generate as many questions as the chunk genuinely supports. Be thorough on content-rich chunks; do not pad with trivial, overly local, or strained questions. Return the blank result [] for structure-only content (TOC, index, headers without body, etc.).
+5. Diversity: no two questions should ask essentially the same thing. Vary phrasing, angle, and difficulty.
+6. Neutrality: no first/second person, no hedging ("maybe", "I think"), no commentary about the spec being unclear.
+
+# Output
+Return ONLY a JSON array, no surrounding prose or code fences:
 [
-  {"type":"concept","question":"..."},
-  {"type":"material","question":"...","material":"FILENAME"},
-  {"type":"reasoning","question":"..."}
-]"""
-
-SYSTEM_PROMPT_PREV = """You generate questions from a text chunk in three categories:
-- concept: Factual question about a single concept or term.
-- material: Question requiring interpretation of a specific figure/table. The referenced image will be provided at inference time.
-- reasoning: Multi-step analytical question that synthesizes multiple ideas.
-
-Rules:
-1. All questions must be SELF-CONTAINED — fully understandable without the source text. Never reference "the passage", "section X", "the author", etc. The only exception: material questions may reference the figure/table with generic phrasing such as "According to the figure," or "Based on the table," — never use specific figure/table numbers or filenames in the question text.
-2. Figures/tables appear as <material:FILENAME> tags in the text. For material questions, put the exact FILENAME in the "material" field. Each material question must reference exactly ONE figure/table; do not combine multiple figures/tables into a single question.
-3. If no <material:...> tag exists, skip material questions entirely.
-4. Dynamically decide how many questions to generate:
-   - If the text is a table of contents, index, or similarly structure-only content with no substantive information, return an empty array [].
-   - For typical text chunks, generate at least 1 question per applicable category.
-   - For content-rich text (dense concepts, multiple figures/tables, or complex arguments), generate MULTIPLE questions per category as needed to adequately cover the material. For example, if the text contains 3 figures, generate up to 3 separate material questions, one per figure.
-   - The total number of questions across all categories must not exceed 3.
-
-If materials are present, they are provided after the text chunk — tables as labeled text blocks ([Table: FILENAME]) and images as inline images — both in the order they appear in the text.
-
-Output ONLY a JSON array, no other text:
-[
-  {"type":"concept","question":"..."},
-  {"type":"material","question":"...","material":"FILENAME"},
-  {"type":"reasoning","question":"..."}
-]"""
+  {"question": "...", "type": "L?", "format": "F?"},
+  {"question": "...", "type": "L?", "format": "F?", "material": "FILENAME"}
+]
+"""
 
 _USER_PROMPT_PREFIX = "<text_chunk>\n"
 _USER_PROMPT_SUFFIX = (
     "\n</text_chunk>\n\nGenerate questions. Return ONLY the JSON array."
 )
 
-MATERIAL_TAG_PATTERN = re.compile(r"<material:([\w\-._]+)>")
-
 
 class QGenerator:
-    """Generate QA pairs from a single text chunk using GPT."""
+    """Generate questions from a single text chunk using GPT."""
 
     def __init__(
         self,
@@ -119,65 +113,19 @@ class QGenerator:
         materials_dir: Path,
     ) -> list[dict]:
         """Build the OpenAI messages payload with text and optional material content."""
-        user_content: list[dict] = [
+        user_content: list[dict] = build_material_content_blocks(
+            material_filenames, materials_dir
+        )
+        user_content.append(
             {
                 "type": "text",
                 "text": _USER_PROMPT_PREFIX + text + _USER_PROMPT_SUFFIX,
             }
-        ]
-
-        for filename in material_filenames:
-            material_path = materials_dir / filename
-            if not material_path.exists():
-                logger.warning(
-                    f"Material file not found, skipping: {material_path}"
-                )
-                continue
-
-            suffix = material_path.suffix.lower()
-            if suffix in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
-                user_content.append(
-                    self._image_content_block(material_path, suffix)
-                )
-            elif suffix == ".txt":
-                table_text = material_path.read_text(encoding="utf-8")
-                user_content.append(
-                    {
-                        "type": "text",
-                        "text": f"[Table: {filename}]\n{table_text}",
-                    }
-                )
-            else:
-                logger.warning(
-                    f"Unsupported material type, skipping: {filename}"
-                )
-                
-
+        )
         return [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ]
-
-    def _image_content_block(self, image_path: Path, suffix: str) -> dict:
-        """Encode an image file to base64 and return an OpenAI image content block."""
-        mime_map = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".gif": "image/gif",
-            ".webp": "image/webp",
-        }
-        mime_type = mime_map.get(suffix, "image/jpeg")
-        image_data = base64.standard_b64encode(image_path.read_bytes()).decode(
-            "utf-8"
-        )
-        return {
-            "type": "image_url",
-            "image_url": {
-                "url": f"data:{mime_type};base64,{image_data}",
-                "detail": "high",
-            },
-        }
 
     def _call_api(self, messages: list[dict]) -> str:
         """Call the OpenAI chat completion API and return the response text."""

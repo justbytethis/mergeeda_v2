@@ -8,8 +8,8 @@ hydra:
   run:
     dir: data/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
-# Input: directory containing evaluation QA JSON files
-qa_dir: "data/datasets/amba_document/eval_qa/IHI0022L_amba_axi_protocol_spec"
+# Input: directory containing evaluation Question JSON files
+questions_dir: "data/datasets/amba_document/question_set/IHI0022L_amba_axi_protocol_spec"
 
 # Input: directory containing extracted material files (images, tables)
 materials_dir: "data/datasets/amba_document/processed/IHI0022L_amba_axi_protocol_spec/materials"
@@ -29,3 +29,5 @@ judge:
   name: "gpt-5.1"
   # API key is read from OPENAI_API_KEY env variable if not set here
   api_key: null
+  # Number of parallel worker threads for concurrent API calls
+  max_workers: 20

@@ -1,4 +1,4 @@
-"""Answer generation module using a Qwen VL model for evaluation QA sets."""
+"""Answer generation module using a Qwen VL model for Question sets."""
 
 import base64
 import json
@@ -6,19 +6,20 @@ import logging
 import re
 from pathlib import Path
 
+from omegaconf import DictConfig
 from PIL import Image
 from tqdm import tqdm
 
 from mergeeda.models.builder import build_model
-from omegaconf import OmegaConf, DictConfig
+from mergeeda.utils import IMAGE_SUFFIXES, MATERIAL_TAG_PATTERN
 
 logger = logging.getLogger(__name__)
 
 
 class AnswerGenerator:
-    """Generate model answers for evaluation QA sets and save unified preds.json.
+    """Generate model answers for Question sets and save unified preds.json.
 
-    Reads all JSON QA files from an input directory, queries the Qwen VL model
+    Reads all JSON Question files from an input directory, queries the Qwen VL model
     for each question (loading material images/tables where applicable), and
     writes a single preds.json to the output path.
     """
@@ -33,15 +34,15 @@ class AnswerGenerator:
 
     def generate(
         self,
-        qa_dir: str | Path,
+        questions_dir: str | Path,
         materials_dir: str | Path,
         output_path: str | Path,
         chunks_dir: str | Path | None = None,
         include_specification: bool = False,
     ) -> None:
-        """Generate answers for all QA JSON files in qa_dir and save preds.json.
+        """Generate answers for all Question JSON files in questions_dir and save preds.json.
 
-        Iterates over all .json files in qa_dir sorted by filename, assigns
+        Iterates over all .json files in questions_dir sorted by filename, assigns
         sequential IDs across files (ascending filename order, then original
         order within each file), queries the model, and writes preds.json.
 
@@ -49,30 +50,38 @@ class AnswerGenerator:
         markdown file (resolved from chunks_dir using the item's source_chunk
         field) is prepended to the question as "Specification: ...".
         """
-        qa_dir = Path(qa_dir)
+        questions_dir = Path(questions_dir)
         materials_dir = Path(materials_dir)
         output_path = Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
 
         if include_specification and chunks_dir is None:
-            raise ValueError("chunks_dir must be provided when include_specification is True")
-        chunks_path: Path | None = Path(chunks_dir) if chunks_dir is not None else None
+            raise ValueError(
+                "chunks_dir must be provided when include_specification is True"
+            )
+        chunks_path: Path | None = (
+            Path(chunks_dir) if chunks_dir is not None else None
+        )
 
-        json_files = sorted(qa_dir.glob("*_test.json"), key=lambda p: p.name)
+        json_files = sorted(questions_dir.glob("*.json"), key=lambda p: p.name)
         if not json_files:
-            logger.warning(f"No .json files found in: {qa_dir}")
+            logger.warning(f"No .json files found in: {questions_dir}")
             return
 
-        logger.info(f"Processing {len(json_files)} QA files from: {qa_dir}")
+        logger.info(
+            f"Processing {len(json_files)} Question files from: {questions_dir}"
+        )
 
         all_items: list[dict] = []
         for json_file in json_files:
-            items = self._load_qa_file(json_file)
+            items = self._load_question_file(json_file)
             all_items.extend(items)
             logger.info(f"Loaded {len(items)} questions from: {json_file.name}")
 
         results: list[dict] = []
-        for idx, item in enumerate(tqdm(all_items, desc="Generating answers"), start=1):
+        for idx, item in enumerate(
+            tqdm(all_items, desc="Generating answers"), start=1
+        ):
             answer = self._query_model(
                 item,
                 materials_dir,
@@ -95,12 +104,14 @@ class AnswerGenerator:
         )
         logger.info(f"Saved {len(results)} predictions -> {output_file}")
 
-    def _load_qa_file(self, json_file: Path) -> list[dict]:
-        """Load and return items from a single QA JSON file."""
+    def _load_question_file(self, json_file: Path) -> list[dict]:
+        """Load and return items from a single Question JSON file."""
         try:
             data = json.loads(json_file.read_text(encoding="utf-8"))
             if not isinstance(data, list):
-                logger.warning(f"Unexpected format in {json_file.name}, skipping")
+                logger.warning(
+                    f"Unexpected format in {json_file.name}, skipping"
+                )
                 return []
             return data
         except (json.JSONDecodeError, OSError) as e:
@@ -137,7 +148,9 @@ class AnswerGenerator:
         if include_specification and chunks_dir is not None:
             source_chunk: str | None = item.get("source_chunk")
             if not source_chunk:
-                logger.warning("include_specification is enabled but item has no 'source_chunk' field")
+                logger.warning(
+                    "include_specification is enabled but item has no 'source_chunk' field"
+                )
             else:
                 chunk_path = chunks_dir / source_chunk
                 if not chunk_path.exists():
@@ -145,13 +158,17 @@ class AnswerGenerator:
                 else:
                     try:
                         chunk_text = chunk_path.read_text(encoding="utf-8")
-                        resolved_text, chunk_imgs = self._resolve_chunk_materials(
-                            chunk_text, materials_dir
+                        resolved_text, chunk_imgs = (
+                            self._resolve_chunk_materials(
+                                chunk_text, materials_dir
+                            )
                         )
                         spec_prefix = f"Specification: {resolved_text}\n\n"
                         imgs.extend(chunk_imgs)
                     except OSError as e:
-                        logger.warning(f"Failed to read chunk {chunk_path}: {e}")
+                        logger.warning(
+                            f"Failed to read chunk {chunk_path}: {e}"
+                        )
 
         if material_filename and not include_specification:
             material_path = materials_dir / material_filename
@@ -159,26 +176,36 @@ class AnswerGenerator:
                 logger.warning(f"Material file not found: {material_path}")
             else:
                 suffix = material_path.suffix.lower()
-                if suffix in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+                if suffix in IMAGE_SUFFIXES:
                     try:
                         imgs.append(Image.open(material_path).convert("RGB"))
                     except OSError as e:
-                        logger.warning(f"Failed to open image {material_path}: {e}")
+                        logger.warning(
+                            f"Failed to open image {material_path}: {e}"
+                        )
                 elif suffix == ".txt":
                     try:
                         table_text = material_path.read_text(encoding="utf-8")
-                        extra_text = f"\n\n[Table: {material_filename}]\n{table_text}"
+                        extra_text = (
+                            f"\n\n[Table: {material_filename}]\n{table_text}"
+                        )
                     except OSError as e:
-                        logger.warning(f"Failed to read table {material_path}: {e}")
+                        logger.warning(
+                            f"Failed to read table {material_path}: {e}"
+                        )
                 else:
-                    logger.warning(f"Unsupported material type, skipping: {material_filename}")
+                    logger.warning(
+                        f"Unsupported material type, skipping: {material_filename}"
+                    )
 
         full_question = spec_prefix + question + extra_text
 
         try:
             answer = self._model(full_question, imgs if imgs else None)
         except Exception as e:
-            logger.error(f"Model inference failed for question: {question[:60]}...: {e}")
+            logger.error(
+                f"Model inference failed for question: {question[:60]}...: {e}"
+            )
             answer = ""
 
         return answer
@@ -194,7 +221,6 @@ class AnswerGenerator:
         Image tags are removed from the text and the images are returned
         separately to be passed to the vision model.
         """
-        image_suffixes = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
         imgs: list[Image.Image] = []
 
         def replace(match: re.Match[str]) -> str:
@@ -209,16 +235,22 @@ class AnswerGenerator:
                 try:
                     return material_path.read_text(encoding="utf-8")
                 except OSError as e:
-                    logger.warning(f"Failed to read chunk table {material_path}: {e}")
+                    logger.warning(
+                        f"Failed to read chunk table {material_path}: {e}"
+                    )
                     return ""
-            if suffix in image_suffixes:
+            if suffix in IMAGE_SUFFIXES:
                 try:
                     imgs.append(Image.open(material_path).convert("RGB"))
                 except OSError as e:
-                    logger.warning(f"Failed to open chunk image {material_path}: {e}")
+                    logger.warning(
+                        f"Failed to open chunk image {material_path}: {e}"
+                    )
                 return ""
-            logger.warning(f"Unsupported chunk material type, skipping: {filename}")
+            logger.warning(
+                f"Unsupported chunk material type, skipping: {filename}"
+            )
             return ""
 
-        resolved = re.sub(r"<material:([^>]+)>", replace, chunk_text)
+        resolved = MATERIAL_TAG_PATTERN.sub(replace, chunk_text)
         return resolved, imgs
