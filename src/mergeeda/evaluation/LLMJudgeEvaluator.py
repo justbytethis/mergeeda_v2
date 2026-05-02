@@ -129,20 +129,17 @@ class LLMJudgeEvaluator:
     def evaluate(
         self,
         preds_path: str | Path,
-        chunks_dir: str | Path,
-        materials_dir: str | Path,
+        processed_dir: str | Path,
         output_path: str | Path,
     ) -> None:
         """Evaluate all predictions in preds.json and save scores.json.
 
-        For each prediction, loads the source chunk text from chunks_dir as
-        context, and if a material field is present, also loads the referenced
-        image or table from materials_dir. Writes scores.json with all original
+        For each prediction, resolves chunks_dir and materials_dir from
+        processed_dir / dataset_name. Writes scores.json with all original
         fields plus reason and score.
         """
         preds_path = Path(preds_path)
-        chunks_dir = Path(chunks_dir)
-        materials_dir = Path(materials_dir)
+        processed_dir = Path(processed_dir)
         output_path = Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
 
@@ -164,8 +161,7 @@ class LLMJudgeEvaluator:
                     executor.map(
                         self._process_item,
                         predictions,
-                        repeat(chunks_dir, n),
-                        repeat(materials_dir, n),
+                        repeat(processed_dir, n),
                     ),
                     total=n,
                     desc="Judging answers",
@@ -184,10 +180,13 @@ class LLMJudgeEvaluator:
     def _process_item(
         self,
         item: dict,
-        chunks_dir: Path,
-        materials_dir: Path,
+        processed_dir: Path,
     ) -> dict:
         """Judge a single prediction and return the scored result."""
+        dataset_name: str = item.get("dataset_name", "")
+        chunks_dir = processed_dir / dataset_name / "chunks"
+        materials_dir = processed_dir / dataset_name / "materials"
+
         context = self._load_context(item.get("source_chunk", ""), chunks_dir)
         question = item.get("question", "")
         answer = item.get("answer", "")

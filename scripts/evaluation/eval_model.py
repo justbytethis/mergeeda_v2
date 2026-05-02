@@ -22,8 +22,7 @@ def main(cfg: DictConfig) -> None:
     """Run answer generation and LLM-judge evaluation on an SFT test split file."""
     logger.info("Starting model evaluation")
     logger.info("SFT test file: %s", cfg.sft_test_file)
-    logger.info("Materials directory: %s", cfg.materials_dir)
-    logger.info("Chunks directory: %s", cfg.chunks_dir)
+    logger.info("Processed directory: %s", cfg.processed_dir)
     logger.info("Output directory: %s", cfg.output_dir)
     logger.info("Model: %s", cfg.model.name)
     logger.info("Judge model: %s", cfg.judge.name)
@@ -31,25 +30,22 @@ def main(cfg: DictConfig) -> None:
 
     original_cwd = Path(get_original_cwd())
     sft_test_file = original_cwd / cfg.sft_test_file
-    materials_path = original_cwd / cfg.materials_dir
-    chunks_path = original_cwd / cfg.chunks_dir
+    processed_path = original_cwd / cfg.processed_dir
     output_path = original_cwd / cfg.output_dir
 
     if not sft_test_file.exists():
         raise FileNotFoundError(f"SFT test file not found: {sft_test_file}")
-    if not materials_path.exists():
+    if not processed_path.exists():
         raise FileNotFoundError(
-            f"Materials directory not found: {materials_path}"
+            f"Processed directory not found: {processed_path}"
         )
-    if not chunks_path.exists():
-        raise FileNotFoundError(f"Chunks directory not found: {chunks_path}")
 
     # Step 1: Generate answers with the target model
     logger.info("Step 1/2: Generating model answers")
     generator = AnswerGenerator(model_cfg=cfg.model)
     generator.generate(
         sft_test_file=sft_test_file,
-        materials_dir=materials_path,
+        processed_dir=processed_path,
         output_path=output_path,
     )
     logger.info("Answer generation completed")
@@ -66,8 +62,7 @@ def main(cfg: DictConfig) -> None:
     preds_path = output_path / "preds.json"
     evaluator.evaluate(
         preds_path=preds_path,
-        chunks_dir=chunks_path,
-        materials_dir=materials_path,
+        processed_dir=processed_path,
         output_path=output_path,
     )
     logger.info("LLM judge evaluation completed")

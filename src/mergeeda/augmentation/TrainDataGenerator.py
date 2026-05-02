@@ -236,6 +236,7 @@ class TrainDataGenerator:
             ],
             "source_chunk": item.get("source_chunk"),
             "type": item.get("type"),
+            "dataset_name": dataset_name,
         }
         if image_paths:
             sft_item["image"] = image_paths

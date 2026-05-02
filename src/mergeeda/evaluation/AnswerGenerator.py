@@ -49,7 +49,7 @@ class AnswerGenerator:
     def generate(
         self,
         sft_test_file: str | Path,
-        materials_dir: str | Path,
+        processed_dir: str | Path,
         output_path: str | Path,
     ) -> None:
         """Generate answers for every item in sft_test_file and save preds.json.
@@ -59,7 +59,7 @@ class AnswerGenerator:
         model's answer (in 'answer') and the GPT gold answer (in 'gold_answer').
         """
         sft_test_file = Path(sft_test_file)
-        materials_dir = Path(materials_dir)
+        processed_dir = Path(processed_dir)
         output_path = Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
 
@@ -77,6 +77,7 @@ class AnswerGenerator:
         for idx, item in enumerate(
             tqdm(items, desc="Generating answers"), start=1
         ):
+            materials_dir = processed_dir / item["dataset_name"] / "materials"
             question, imgs = self._prepare_input(item, materials_dir)
             gold_answer = item.get("conversations", [{}, {}])[1].get(
                 "value", ""
@@ -90,6 +91,7 @@ class AnswerGenerator:
 
             result: dict = {
                 "id": idx,
+                "dataset_name": item.get("dataset_name"),
                 "type": item.get("type"),
                 "source_chunk": item.get("source_chunk"),
                 "material": item.get("material"),
