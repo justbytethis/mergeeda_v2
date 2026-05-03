@@ -19,6 +19,9 @@ processed_dir: "data/datasets/amba_document/processed"
 # Output directory for preds.json and scores.json
 output_dir: "data/evaluation/base_model_rag"
 
+# If true, skip answer generation and load preds.json directly from output_dir.
+skip_generation: false
+
 # If true, the LLM judge receives the GPT-generated gold answer from the SFT
 # item alongside the model's answer for comparison-based scoring.
 # If false, the judge scores based on context and question alone.
