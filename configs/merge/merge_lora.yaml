@@ -1,0 +1,50 @@
+hydra:
+  run:
+    dir: data/outputs/merge/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+# HuggingFace base model identifier
+base_model_name: "Qwen/Qwen3-VL-4B-Instruct"
+
+# LoRA adapter checkpoint paths (relative to project root)
+adapter_paths:
+  - "data/outputs/qwen3-vl-4b-lora-128-amba_sft-<date>-<time>/checkpoint-<last_checkpoint>"
+  - "data/outputs/qwen3-vl-4b-lora-128-verilog_sft-<date>-<time>/checkpoint-<last_checkpoint>"
+
+# Adapter identifiers used internally by add_weighted_adapter
+adapter_names:
+  - "amba_qa"
+  - "coding"
+
+# Per-adapter weights (must match length of adapter_paths)
+weights:
+  - 1.0
+  - 1.0
+
+# Output path for the merged LoRA adapter checkpoint
+output_path: "data/outputs/qwen3-vl-4b-lora-128-merged-<combination_type>/checkpoint-merged"
+
+# Merge algorithm
+# Options: linear | svd | cat | ties | ties_svd | dare_ties | dare_linear |
+#          dare_ties_svd | dare_linear_svd | magnitude_prune | magnitude_prune_svd
+combination_type: "linear"
+
+# --- combination_type-specific parameters (set null when not applicable) ---
+
+# Required for: ties, ties_svd, dare_*, magnitude_prune*
+# Fraction of parameters to keep (0.0 ~ 1.0)
+density: 0.2
+
+# Used for: ties, ties_svd, dare_ties, dare_ties_svd
+# Options: "total" | "frequency"
+majority_sign_method: "total"
+
+# Used for: svd, *_svd variants — output adapter rank (null = max of input ranks)
+svd_rank: null
+
+# Used for: svd, *_svd variants — quantile threshold for clamping SVD output (null = disabled)
+svd_clamp: null
+
+# Model loading settings
+torch_dtype: "bfloat16"
+attn_implementation: "sdpa"
+device_map: "auto"
