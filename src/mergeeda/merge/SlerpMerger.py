@@ -140,13 +140,14 @@ class SlerpMerger:
             self._t_per_layer if self._t_per_layer is not None else self._t
         )
 
+        # dtype is a top-level field in MergeConfiguration, not inside parameters
         config_dict = {
             "merge_method": "slerp",
             "base_model": full_model_paths[0],
             "models": [{"model": full_model_paths[1]}],
+            "dtype": self._dtype,
             "parameters": {
                 "t": t_value,
-                "dtype": self._dtype,
             },
         }
         raw_yaml = yaml.dump(config_dict, allow_unicode=True)
