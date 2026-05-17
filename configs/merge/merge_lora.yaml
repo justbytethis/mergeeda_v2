@@ -11,22 +11,29 @@ adapter_paths:
   - "data/outputs/qwen3-vl-4b-lora-128-verilog_sft-<date>-<time>/checkpoint-<last_checkpoint>"
 
 # Adapter identifiers used internally by add_weighted_adapter
+# (ignored when combination_type: slerp)
 adapter_names:
   - "amba_qa"
   - "coding"
 
 # Per-adapter weights (must match length of adapter_paths)
+# (ignored when combination_type: slerp)
 weights:
   - 1.0
   - 1.0
 
-# Output path for the merged LoRA adapter checkpoint
-output_path: "data/outputs/qwen3-vl-4b-lora-128-merged-<combination_type>/checkpoint-merged"
+# Output path for the merged checkpoint
+# - For PEFT methods (linear, svd, ties, dare_*, ...): saves a LoRA adapter
+# - For slerp: saves a full merged model (not a LoRA adapter)
+output_path: "data/outputs/qwen3-vl-4b-lora-128-merged-${combination_type}/checkpoint-merged"
 
 # Merge algorithm
-# Options: linear | svd | cat | ties | ties_svd | dare_ties | dare_linear |
-#          dare_ties_svd | dare_linear_svd | magnitude_prune | magnitude_prune_svd
-combination_type: "linear"
+# Options (PEFT add_weighted_adapter):
+#   linear | svd | cat | ties | ties_svd | dare_ties | dare_linear |
+#   dare_ties_svd | dare_linear_svd | magnitude_prune | magnitude_prune_svd
+# Options (mergekit):
+#   slerp
+combination_type: "slerp"
 
 # --- combination_type-specific parameters (set null when not applicable) ---
 
@@ -44,7 +51,43 @@ svd_rank: null
 # Used for: svd, *_svd variants — quantile threshold for clamping SVD output (null = disabled)
 svd_clamp: null
 
-# Model loading settings
+# Model loading settings (shared by all methods)
 torch_dtype: "bfloat16"
 attn_implementation: "sdpa"
 device_map: "auto"
+
+# ---------------------------------------------------------------------------
+# slerp-specific parameters
+# Only used when combination_type: slerp
+# ---------------------------------------------------------------------------
+slerp:
+  # Spherical interpolation factor (0.0 = adapter_paths[0], 1.0 = adapter_paths[1])
+  t: 0.9
+
+  # Per-layer / per-filter interpolation schedule.
+  # When set, overrides the scalar `t` above.
+  # Each entry must have a `value` key and an optional `filter` key (regex matched
+  # against layer names). The last entry without a filter acts as the fallback.
+  t_per_layer:
+    - filter: self_attn
+      value: [0.80, 0.70, 0.65, 0.80, 0.95]
+    - filter: mlp
+      value: [0.85, 0.60, 0.55, 0.70, 0.90]
+    - value: 0.90
+  # t_per_layer: null
+
+  # Output dtype for the merged full model
+  # Options: float16 | bfloat16 | float32
+  dtype: "bfloat16"
+
+  # Directory for mergekit's intermediate LoRA merge cache (null = system tmp)
+  lora_merge_cache: null
+
+  # Copy tokenizer from the first adapter's base model to the output directory
+  copy_tokenizer: true
+
+  # Use lazy unpickling to reduce peak memory during mergekit merge step
+  lazy_unpickle: false
+
+  # Enable low-CPU-memory mode in mergekit (slower but uses less RAM)
+  low_cpu_memory: false
