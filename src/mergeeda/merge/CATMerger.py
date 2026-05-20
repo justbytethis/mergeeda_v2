@@ -26,6 +26,7 @@ import torch.nn.functional as F
 from peft import LoraConfig, PeftModel, get_peft_model
 from peft.tuners.lora.layer import Linear as LoraLinear
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 from .cat_dataset import CATDataCollator, CATInstructionDataset
@@ -216,6 +217,9 @@ class CATMerger:
         optimizer = torch.optim.AdamW(alpha_params, lr=self._learning_rate)
 
         if self._gradient_checkpointing:
+            # use_cache=True caches attention key/values for generation and is
+            # incompatible with gradient checkpointing; disable it for training.
+            model.config.use_cache = False
             # Only frozen weights exist besides alpha, so the embedding output
             # would carry no grad and checkpointed blocks could not backprop.
             # enable_input_require_grads() forces grad on the embeddings, and
@@ -231,7 +235,12 @@ class CATMerger:
         for epoch in range(self._epochs):
             optimizer.zero_grad(set_to_none=True)
             running_loss = 0.0
-            for step, batch in enumerate(loader):
+            progress = tqdm(
+                loader,
+                desc=f"CAT epoch {epoch + 1}/{self._epochs}",
+                unit="batch",
+            )
+            for step, batch in enumerate(progress):
                 batch = {k: v.to(device) for k, v in batch.items()}
                 outputs = model(
                     input_ids=batch["input_ids"],
@@ -246,15 +255,7 @@ class CATMerger:
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
 
-                if (step + 1) % (self._grad_accum_steps * 10) == 0:
-                    avg = running_loss / (step + 1)
-                    logger.info(
-                        "epoch %d step %d/%d avg_loss=%.4f",
-                        epoch + 1,
-                        step + 1,
-                        len(loader),
-                        avg,
-                    )
+                progress.set_postfix(avg_loss=running_loss / (step + 1))
 
             # Flush a trailing partial accumulation window.
             if len(loader) % self._grad_accum_steps != 0:
