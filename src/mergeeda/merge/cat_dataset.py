@@ -5,8 +5,10 @@ The training data is a JSON list of objects in ShareGPT conversation format::
     {"conversations": [{"from": "human", "value": "..."},
                        {"from": "gpt",   "value": "..."}]}
 
-Each conversation is rendered with the model chat template, and the loss is
-masked so that only the assistant ("gpt") turns contribute to the loss.
+Both skills use a fixed single-turn structure, so the first user turn is taken
+as the prompt and the first assistant turn as the response. Each pair is
+rendered with the model chat template, and the loss is masked so that only the
+response ("gpt") tokens contribute to the loss.
 """
 
 import json
@@ -30,16 +32,14 @@ _ROLE_MAP: dict[str, str] = {
     "assistant": "assistant",
     "system": "system",
 }
-# Roles whose tokens are trained on (loss is computed).
-_RESPONSE_ROLES: frozenset[str] = frozenset({"assistant"})
 
 
 class CATConversationDataset(Dataset):
-    """ShareGPT-format dataset that masks the loss to the assistant turns.
+    """ShareGPT-format dataset of single prompt/response pairs.
 
-    Each item yields ``input_ids`` and ``labels`` of equal length. Tokens that
-    belong to non-assistant turns (and chat-template scaffolding) are set to
-    ``IGNORE_INDEX`` in ``labels`` so only the responses are trained on.
+    Each item yields ``input_ids`` and ``labels`` of equal length. The prompt
+    tokens (and chat-template scaffolding) are set to ``IGNORE_INDEX`` in
+    ``labels`` so only the response tokens are trained on.
     """
 
     def __init__(
@@ -64,25 +64,43 @@ class CATConversationDataset(Dataset):
                 f"CAT training data must be a JSON list, got {type(raw).__name__}"
             )
 
-        self._examples: list[list[dict[str, str]]] = []
+        # Each example is a single (prompt, response) pair. Both skills use a
+        # fixed 1 human + 1 gpt structure, so only the first user turn and the
+        # first assistant turn are kept. Each pair is tokenized once here so
+        # samples whose response is fully truncated away (which would make the
+        # batch loss NaN: 0 supervised tokens) can be dropped up front.
+        self._examples: list[dict[str, list[int]]] = []
+        dropped = 0
         for idx, item in enumerate(raw):
-            turns = self._normalize_conversation(item, idx)
-            if turns:
-                self._examples.append(turns)
+            prompt, response = self._extract_pair(item, idx)
+            encoded = self._encode(prompt, response)
+            if not any(label != IGNORE_INDEX for label in encoded["labels"]):
+                dropped += 1
+                continue
+            self._examples.append(encoded)
 
+        if dropped:
+            logger.warning(
+                "Dropped %d/%d CAT examples whose response was fully truncated "
+                "at max_length=%d",
+                dropped,
+                len(raw),
+                self._max_length,
+            )
         if not self._examples:
-            raise ValueError(f"No usable conversations found in {data_path}")
+            raise ValueError(
+                f"All CAT examples were dropped; increase max_length "
+                f"(current: {self._max_length})"
+            )
 
         logger.info(
-            "Loaded %d CAT training conversations from %s",
+            "Loaded %d CAT training examples from %s",
             len(self._examples),
             data_path,
         )
 
-    def _normalize_conversation(
-        self, item: dict, idx: int
-    ) -> list[dict[str, str]]:
-        """Convert one raw item into a list of {role, content} chat turns."""
+    def _extract_pair(self, item: dict, idx: int) -> tuple[str, str]:
+        """Extract the (prompt, response) pair from one ShareGPT item."""
         if self._conversations_key not in item:
             raise ValueError(
                 f"Example {idx} is missing '{self._conversations_key}' field"
@@ -91,62 +109,65 @@ class CATConversationDataset(Dataset):
         if not isinstance(raw_turns, list) or not raw_turns:
             raise ValueError(f"Example {idx} has an empty conversation")
 
-        turns: list[dict[str, str]] = []
+        prompt: str | None = None
+        response: str | None = None
         for turn in raw_turns:
-            role_raw = str(turn.get("from", "")).lower()
-            role = _ROLE_MAP.get(role_raw)
-            if role is None:
-                raise ValueError(
-                    f"Example {idx} has an unknown role '{role_raw}'"
-                )
-            turns.append({"role": role, "content": str(turn.get("value", ""))})
-        return turns
+            role = _ROLE_MAP.get(str(turn.get("from", "")).lower())
+            value = str(turn.get("value", ""))
+            if role == "user" and prompt is None:
+                prompt = value
+            elif role == "assistant" and response is None:
+                response = value
+
+        if prompt is None or response is None:
+            raise ValueError(
+                f"Example {idx} must contain one user and one assistant turn"
+            )
+        return prompt, response
+
+    def _encode(self, prompt: str, response: str) -> dict[str, list[int]]:
+        """Tokenize one (prompt, response) pair into truncated input_ids/labels.
+
+        The prompt span is masked with IGNORE_INDEX; only response tokens carry
+        a loss. Truncation is from the right, so input_ids and labels stay
+        aligned (and the response may be partially or fully cut off).
+        """
+        # Render the prompt (with the assistant-turn opening) and the full
+        # text separately so the prompt span can be masked exactly.
+        prompt_text = self._tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        full_text = prompt_text + response + self._tokenizer.eos_token
+
+        prompt_ids = self._tokenizer(
+            prompt_text, add_special_tokens=False
+        )["input_ids"]
+        full_ids = self._tokenizer(
+            full_text, add_special_tokens=False
+        )["input_ids"]
+
+        labels = list(full_ids)
+        # Mask the prompt portion; only the response tokens carry a loss.
+        prompt_len = min(len(prompt_ids), len(full_ids))
+        for i in range(prompt_len):
+            labels[i] = IGNORE_INDEX
+
+        # Truncate from the right; input_ids and labels stay aligned.
+        return {
+            "input_ids": full_ids[: self._max_length],
+            "labels": labels[: self._max_length],
+        }
 
     def __len__(self) -> int:
         return len(self._examples)
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
-        turns = self._examples[index]
-
-        input_ids: list[int] = []
-        labels: list[int] = []
-
-        # Render turn-by-turn so the assistant spans can be located exactly.
-        # The prompt prefix before each turn (including prior turns) is masked;
-        # only the newly added assistant tokens carry a loss.
-        for i, turn in enumerate(turns):
-            prefix_text = self._tokenizer.apply_chat_template(
-                turns[:i],
-                tokenize=False,
-                add_generation_prompt=(turn["role"] == "assistant"),
-            )
-            upto_text = self._tokenizer.apply_chat_template(
-                turns[: i + 1],
-                tokenize=False,
-                add_generation_prompt=False,
-            )
-            prefix_ids = self._tokenizer(
-                prefix_text, add_special_tokens=False
-            )["input_ids"]
-            upto_ids = self._tokenizer(
-                upto_text, add_special_tokens=False
-            )["input_ids"]
-
-            # Tokens added by this turn.
-            new_ids = upto_ids[len(prefix_ids):]
-            input_ids = upto_ids  # cumulative
-            if turn["role"] in _RESPONSE_ROLES:
-                labels = labels + new_ids
-            else:
-                labels = labels + [IGNORE_INDEX] * len(new_ids)
-
-        # Truncate from the right; input_ids and labels stay aligned.
-        input_ids = input_ids[: self._max_length]
-        labels = labels[: self._max_length]
-
+        encoded = self._examples[index]
         return {
-            "input_ids": torch.tensor(input_ids, dtype=torch.long),
-            "labels": torch.tensor(labels, dtype=torch.long),
+            "input_ids": torch.tensor(encoded["input_ids"], dtype=torch.long),
+            "labels": torch.tensor(encoded["labels"], dtype=torch.long),
         }
 
 
