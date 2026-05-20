@@ -7,11 +7,12 @@ import hydra
 from hydra.utils import get_original_cwd
 from omegaconf import DictConfig, OmegaConf
 
-from mergeeda.merge import LoRAMerger, SlerpMerger
+from mergeeda.merge import CATMerger, LoRAMerger, SlerpMerger
 
 logger = logging.getLogger(__name__)
 
 _SLERP = "slerp"
+_LEARNABLE_CAT = "learnable_cat"
 
 
 @hydra.main(
@@ -58,6 +59,28 @@ def main(cfg: DictConfig) -> None:
             copy_tokenizer=bool(slerp_cfg.copy_tokenizer),
             lazy_unpickle=bool(slerp_cfg.lazy_unpickle),
             low_cpu_memory=bool(slerp_cfg.low_cpu_memory),
+        )
+    elif cfg.combination_type == _LEARNABLE_CAT:
+        cat_cfg = cfg.cat
+        train_data_path = str(original_cwd / cat_cfg.train_data_path)
+        merger = CATMerger(
+            base_model_name=cfg.base_model_name,
+            adapter_paths=adapter_paths,
+            adapter_names=list(cfg.adapter_names),
+            output_path=output_path,
+            train_data_path=train_data_path,
+            epochs=int(cat_cfg.epochs),
+            learning_rate=float(cat_cfg.learning_rate),
+            max_length=int(cat_cfg.max_length),
+            batch_size=int(cat_cfg.batch_size),
+            grad_accum_steps=int(cat_cfg.grad_accum_steps),
+            gradient_checkpointing=bool(cat_cfg.gradient_checkpointing),
+            torch_dtype=cfg.torch_dtype,
+            attn_implementation=cfg.attn_implementation,
+            device_map=cfg.device_map,
+            instruction_key=cat_cfg.instruction_key,
+            response_key=cat_cfg.response_key,
+            seed=int(cat_cfg.seed),
         )
     else:
         merger = LoRAMerger(

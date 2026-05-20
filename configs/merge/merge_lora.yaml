@@ -33,6 +33,9 @@ output_path: "data/outputs/qwen3-vl-4b-lora-128-merged-${combination_type}/check
 #   dare_ties_svd | dare_linear_svd | magnitude_prune | magnitude_prune_svd
 # Options (mergekit):
 #   slerp
+# Options (LoRA Soups):
+#   learnable_cat  -- trains per-layer softmax coefficients, saves a single
+#                     concatenated LoRA adapter of rank = sum of input ranks
 combination_type: "slerp"
 
 # --- combination_type-specific parameters (set null when not applicable) ---
@@ -91,3 +94,31 @@ slerp:
 
   # Enable low-CPU-memory mode in mergekit (slower but uses less RAM)
   low_cpu_memory: false
+
+# ---------------------------------------------------------------------------
+# learnable_cat-specific parameters (LoRA Soups)
+# Only used when combination_type: learnable_cat
+# ---------------------------------------------------------------------------
+cat:
+  # Path to the mixed-skill training data (JSON list of instruction/response
+  # objects). Prepare this file in advance by mixing samples from each skill's
+  # training set (LoRA Soups uses ~5% from each skill).
+  train_data_path: "data/datasets/cat_mix/cat_train_mix.json"
+
+  # JSON keys for the prompt and target response in each training example.
+  instruction_key: "instruction"
+  response_key: "reference_code"
+
+  # Coefficient-training hyperparameters. Only the per-layer softmax weights
+  # are trained; all adapter weights stay frozen.
+  epochs: 1
+  learning_rate: 1e-4
+  max_length: 4096
+  batch_size: 1
+  grad_accum_steps: 8
+
+  # Trade compute for memory; required to fit the 4B model backward pass.
+  gradient_checkpointing: true
+
+  # RNG seed for shuffling and coefficient init.
+  seed: 42
