@@ -116,8 +116,8 @@ cat:
   # softmax, so they typically stay close to the init; large movement is not
   # expected. If the alphas barely move, raise epochs/lr rather than changing
   # the method.
-  epochs: 3
-  learning_rate: 3e-4
+  epochs: 1
+  learning_rate: 1e-4
   max_length: 4096
   batch_size: 1
   grad_accum_steps: 8
@@ -127,3 +127,8 @@ cat:
 
   # RNG seed for shuffling and coefficient init.
   seed: 42
+
+  # wandb logging (null = disabled)
+  wandb_project: "mergeeda"
+  wandb_entity: "ju5tbyte-personal"
+  wandb_name: "lorasoups"

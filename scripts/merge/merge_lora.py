@@ -80,6 +80,9 @@ def main(cfg: DictConfig) -> None:
             device_map=cfg.device_map,
             conversations_key=cat_cfg.conversations_key,
             seed=int(cat_cfg.seed),
+            wandb_project=cat_cfg.get("wandb_project", None),
+            wandb_entity=cat_cfg.get("wandb_entity", None),
+            wandb_name=cat_cfg.get("wandb_name", None),
         )
     else:
         merger = LoRAMerger(

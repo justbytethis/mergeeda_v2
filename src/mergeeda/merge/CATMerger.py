@@ -23,6 +23,7 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+import wandb
 from peft import LoraConfig, PeftModel, get_peft_model
 from peft.tuners.lora.layer import Linear as LoraLinear
 from torch.utils.data import DataLoader
@@ -63,6 +64,9 @@ class CATMerger:
         device_map: str = "auto",
         conversations_key: str = "conversations",
         seed: int = 42,
+        wandb_project: str | None = None,
+        wandb_entity: str | None = None,
+        wandb_name: str | None = None,
     ) -> None:
         if len(adapter_paths) < 2:
             raise ValueError("CAT requires at least two adapter paths")
@@ -82,6 +86,10 @@ class CATMerger:
         self._gradient_checkpointing = gradient_checkpointing
         self._conversations_key = conversations_key
         self._seed = seed
+        self._wandb_project = wandb_project
+        self._wandb_entity = wandb_entity
+        self._wandb_name = wandb_name
+        self._use_wandb = wandb_project is not None
 
         dtype_map = {
             "float16": torch.float16,
@@ -100,6 +108,24 @@ class CATMerger:
         """Run the full Learnable CAT pipeline and save the merged adapter."""
         torch.manual_seed(self._seed)
 
+        if self._use_wandb:
+            wandb.init(
+                project=self._wandb_project,
+                entity=self._wandb_entity,
+                name=self._wandb_name,
+                config={
+                    "base_model": self._base_model_name,
+                    "adapters": self._adapter_names,
+                    "epochs": self._epochs,
+                    "learning_rate": self._learning_rate,
+                    "batch_size": self._batch_size,
+                    "grad_accum_steps": self._grad_accum_steps,
+                    "max_length": self._max_length,
+                    "gradient_checkpointing": self._gradient_checkpointing,
+                    "seed": self._seed,
+                },
+            )
+
         model, processor = self._load_model_with_adapters()
         train_device = self._resolve_train_device(model)
 
@@ -115,8 +141,13 @@ class CATMerger:
         self._train_alphas(model, processor, alpha_params, train_device)
 
         alphas = collect_cat_alphas(model)
+        if self._use_wandb:
+            wandb.log({"alphas": alphas})
         self._save_concatenated_adapter(model, processor, alphas)
         logger.info("Learnable CAT merge complete: %s", self._output_path)
+
+        if self._use_wandb:
+            wandb.finish()
 
     # ------------------------------------------------------------------
     # Loading
@@ -252,6 +283,14 @@ class CATMerger:
                 if (step + 1) % self._grad_accum_steps == 0:
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
+                    if self._use_wandb:
+                        wandb.log(
+                            {
+                                "train/loss": running_loss / (step + 1),
+                                "train/epoch": epoch + 1,
+                                "train/step": step + 1,
+                            },
+                        )
 
                 progress.set_postfix(avg_loss=running_loss / (step + 1))
 
@@ -262,6 +301,8 @@ class CATMerger:
 
             avg = running_loss / max(1, len(loader))
             logger.info("epoch %d finished: avg_loss=%.4f", epoch + 1, avg)
+            if self._use_wandb:
+                wandb.log({"train/epoch_avg_loss": avg, "train/epoch": epoch + 1})
 
         model.eval()
         if self._gradient_checkpointing:
