@@ -7,8 +7,8 @@ base_model_name: "Qwen/Qwen3-VL-4B-Instruct"
 
 # LoRA adapter checkpoint paths (relative to project root)
 adapter_paths:
-  - "data/outputs/qwen3-vl-4b-lora-128-amba_sft-<date>-<time>/checkpoint-<last_checkpoint>"
-  - "data/outputs/qwen3-vl-4b-lora-128-verilog_sft-<date>-<time>/checkpoint-<last_checkpoint>"
+  - "data/models/amba_qa"
+  - "data/models/coding"
 
 # Adapter identifiers used internally by add_weighted_adapter
 # (ignored when combination_type: slerp)
@@ -25,7 +25,7 @@ weights:
 # Output path for the merged checkpoint
 # - For PEFT methods (linear, svd, ties, dare_*, ...): saves a LoRA adapter
 # - For slerp: saves a full merged model (not a LoRA adapter)
-output_path: "data/outputs/qwen3-vl-4b-lora-128-merged-${combination_type}/checkpoint-merged"
+output_path: "data/models/merged-lorasoups"
 
 # Merge algorithm
 # Options (PEFT add_weighted_adapter):
@@ -36,7 +36,7 @@ output_path: "data/outputs/qwen3-vl-4b-lora-128-merged-${combination_type}/check
 # Options (LoRA Soups):
 #   learnable_cat  -- trains per-layer softmax coefficients, saves a single
 #                     concatenated LoRA adapter of rank = sum of input ranks
-combination_type: "slerp"
+combination_type: "learnable_cat"
 
 # --- combination_type-specific parameters (set null when not applicable) ---
 
@@ -103,7 +103,7 @@ cat:
   # Path to the mixed-skill training data (JSON list of instruction/response
   # objects). Prepare this file in advance by mixing samples from each skill's
   # training set (LoRA Soups uses ~5% from each skill).
-  train_data_path: "data/datasets/cat_mix/cat_train_mix.json"
+  train_data_path: "data/datasets/cat_mix_train.json"
 
   # JSON keys for the prompt and target response in each training example.
   instruction_key: "instruction"
@@ -111,8 +111,14 @@ cat:
 
   # Coefficient-training hyperparameters. Only the per-layer softmax weights
   # are trained; all adapter weights stay frozen.
-  epochs: 1
-  learning_rate: 1e-4
+  #
+  # LoRA Soups (arXiv:2410.13025) uses lr=1e-4 with 1 epoch in the paper
+  # (3e-4 / 3 epochs in the released code). The coefficients pass through a
+  # softmax, so they typically stay close to the init; large movement is not
+  # expected. If the alphas barely move, raise epochs/lr rather than changing
+  # the method.
+  epochs: 3
+  learning_rate: 3e-4
   max_length: 4096
   batch_size: 1
   grad_accum_steps: 8

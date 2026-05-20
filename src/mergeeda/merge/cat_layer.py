@@ -73,6 +73,7 @@ def patch_lora_layers_for_cat(
     adapter_names: list[str],
     device: torch.device | str,
     dtype: torch.dtype,
+    seed: int | None = None,
 ) -> list[nn.Parameter]:
     """Inject learnable ``cat_alpha`` parameters and patch the forward of every
     ``lora.Linear`` layer that hosts at least one of ``adapter_names``.
@@ -81,6 +82,13 @@ def patch_lora_layers_for_cat(
     """
     if len(adapter_names) < 2:
         raise ValueError("CAT requires at least two adapter names")
+
+    # LoRA Soups initializes each coefficient with torch.randn(1). A non-zero,
+    # asymmetric init breaks the exact softmax symmetry at 0.5/0.5, where the
+    # gradient is balanced and the alphas struggle to differentiate.
+    generator: torch.Generator | None = None
+    if seed is not None:
+        generator = torch.Generator(device="cpu").manual_seed(seed)
 
     injected: list[nn.Parameter] = []
     patched_count = 0
@@ -93,10 +101,11 @@ def patch_lora_layers_for_cat(
         if len(present) < 2:
             continue
 
-        # One learnable scalar per adapter, initialized to zeros so the initial
-        # softmax is uniform (equal weighting, matching static CAT at start).
+        # One learnable scalar per adapter, randn-initialized (matching the
+        # LoRA Soups reference) so the initial softmax is slightly asymmetric.
+        init = torch.randn(len(adapter_names), generator=generator)
         alpha = nn.Parameter(
-            torch.zeros(len(adapter_names), device=device, dtype=dtype),
+            init.to(device=device, dtype=dtype),
             requires_grad=True,
         )
         module.register_parameter(CAT_ALPHA_ATTR, alpha)

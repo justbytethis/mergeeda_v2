@@ -110,6 +110,7 @@ class CATMerger:
             adapter_names=self._adapter_names,
             device=train_device,
             dtype=torch.float32,
+            seed=self._seed,
         )
         self._freeze_except_cat(model)
 
