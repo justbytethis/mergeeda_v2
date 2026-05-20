@@ -29,7 +29,7 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
-from .cat_dataset import CATDataCollator, CATInstructionDataset
+from .cat_dataset import CATConversationDataset, CATDataCollator
 from .cat_layer import (
     CAT_ALPHA_ATTR,
     collect_cat_alphas,
@@ -61,8 +61,7 @@ class CATMerger:
         torch_dtype: str = "bfloat16",
         attn_implementation: str = "sdpa",
         device_map: str = "auto",
-        instruction_key: str = "instruction",
-        response_key: str = "reference_code",
+        conversations_key: str = "conversations",
         seed: int = 42,
     ) -> None:
         if len(adapter_paths) < 2:
@@ -81,8 +80,7 @@ class CATMerger:
         self._batch_size = batch_size
         self._grad_accum_steps = max(1, grad_accum_steps)
         self._gradient_checkpointing = gradient_checkpointing
-        self._instruction_key = instruction_key
-        self._response_key = response_key
+        self._conversations_key = conversations_key
         self._seed = seed
 
         dtype_map = {
@@ -200,12 +198,11 @@ class CATMerger:
         """Train the CAT alpha coefficients with a causal LM loss."""
         tokenizer = getattr(processor, "tokenizer", processor)
 
-        dataset = CATInstructionDataset(
+        dataset = CATConversationDataset(
             data_path=self._train_data_path,
             tokenizer=tokenizer,
             max_length=self._max_length,
-            instruction_key=self._instruction_key,
-            response_key=self._response_key,
+            conversations_key=self._conversations_key,
         )
         collator = CATDataCollator(tokenizer)
         loader = DataLoader(

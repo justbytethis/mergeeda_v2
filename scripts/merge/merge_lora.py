@@ -78,8 +78,7 @@ def main(cfg: DictConfig) -> None:
             torch_dtype=cfg.torch_dtype,
             attn_implementation=cfg.attn_implementation,
             device_map=cfg.device_map,
-            instruction_key=cat_cfg.instruction_key,
-            response_key=cat_cfg.response_key,
+            conversations_key=cat_cfg.conversations_key,
             seed=int(cat_cfg.seed),
         )
     else:

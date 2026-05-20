@@ -100,14 +100,13 @@ slerp:
 # Only used when combination_type: learnable_cat
 # ---------------------------------------------------------------------------
 cat:
-  # Path to the mixed-skill training data (JSON list of instruction/response
-  # objects). Prepare this file in advance by mixing samples from each skill's
-  # training set (LoRA Soups uses ~5% from each skill).
+  # Path to the mixed-skill training data (JSON list of ShareGPT-format
+  # objects with a "conversations" field). Build it with
+  # scripts/merge/build_cat_mix.py, which mixes equal counts from each skill.
   train_data_path: "data/datasets/cat_mix_train.json"
 
-  # JSON keys for the prompt and target response in each training example.
-  instruction_key: "instruction"
-  response_key: "reference_code"
+  # JSON key holding the ShareGPT conversation turns in each example.
+  conversations_key: "conversations"
 
   # Coefficient-training hyperparameters. Only the per-layer softmax weights
   # are trained; all adapter weights stay frozen.
