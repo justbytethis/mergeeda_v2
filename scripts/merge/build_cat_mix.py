@@ -103,14 +103,27 @@ def load_amba_samples(
     ]
 
 
-def _pyranet_to_sharegpt(row: dict) -> dict | None:
-    """Convert one PyraNet row to a ShareGPT conversation, or None if invalid."""
-    code = row.get("code")
-    desc = row.get("description")
-    if not code or not isinstance(desc, dict):
+def _parse_description(raw: object) -> dict | None:
+    """Parse the PyraNet 'description' cell into a dict.
+
+    The CSV stores this column as a JSON string (dtype=string), so it must be
+    json.loads-ed before its keys (rank, complexity, ...) can be read.
+    """
+    if isinstance(raw, dict):
+        return raw  # already parsed (defensive)
+    if not isinstance(raw, str):
         return None
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _pyranet_to_sharegpt(code: object, desc: dict) -> dict | None:
+    """Convert a PyraNet (code, parsed-description) pair to a ShareGPT item."""
     instruction = desc.get("description")
-    if not instruction:
+    if not code or not instruction:
         return None
     return {
         "conversations": [
@@ -150,16 +163,23 @@ def load_pyranet_samples(
     dataset = load_dataset(_PYRANET_REPO, split="train")
 
     filtered: list[dict] = []
+    parse_failures = 0
     for row in dataset:
-        desc = row.get("description")
-        if not isinstance(desc, dict):
+        desc = _parse_description(row.get("description"))
+        if desc is None:
+            parse_failures += 1
             continue
         if not _pyranet_keep(desc, rank_min, complexity_set):
             continue
-        sample = _pyranet_to_sharegpt(row)
+        sample = _pyranet_to_sharegpt(row.get("code"), desc)
         if sample is not None:
             filtered.append(sample)
 
+    if parse_failures:
+        logger.warning(
+            "PyraNet: %d rows had an unparseable 'description' field",
+            parse_failures,
+        )
     logger.info(
         "PyraNet: %d samples pass filters (rank>%d, complexity=%s, status=%r)",
         len(filtered),
